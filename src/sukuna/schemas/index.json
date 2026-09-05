@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "WorkerState": {
+      "enum": [
+        "starting",
+        "ready",
+        "busy",
+        "reported",
+        "accepted",
+        "failed",
+        "timed_out",
+        "closed"
+      ],
+      "title": "WorkerState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Pydantic validation boundary for one on-disk worker record, mirroring\n`WorkerRecord`'s current field set. `extra=\"forbid\"` catches typos,\nhand-edits, and dropped-field leftovers early \u2014 the migration below is\nwhat makes this safe, by renaming or dropping every key that predates\nthe current shape before this model ever sees the dict.",
+  "properties": {
+    "goal": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Goal"
+    },
+    "managed": {
+      "default": true,
+      "title": "Managed",
+      "type": "boolean"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "pane_ref": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Pane Ref"
+    },
+    "parent_session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Session Id"
+    },
+    "parent_worker_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Parent Worker Name"
+    },
+    "repo_root": {
+      "minLength": 1,
+      "title": "Repo Root",
+      "type": "string"
+    },
+    "session_log_path": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Log Path"
+    },
+    "session_log_reset_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Log Reset At"
+    },
+    "state": {
+      "$ref": "#/$defs/WorkerState"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    },
+    "window_ref": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Window Ref"
+    },
+    "worktree": {
+      "minLength": 1,
+      "title": "Worktree",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "repo_root",
+    "worktree",
+    "updated_at",
+    "state"
+  ],
+  "title": "WorkerRecordDocument",
+  "type": "object"
+}

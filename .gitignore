@@ -1,0 +1,10 @@
+.claude/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+node_modules/
+src/sukuna/_tui_bundle/

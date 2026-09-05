@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=77.0.3"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sukuna"
+version = "0.1.0"
+description = "Safe iTerm2 and tmux pane manager for named Claude Code workers"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "sukuna contributors" }]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: MacOS X",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+dependencies = ["pydantic>=2,<3", "tomlkit>=0.15,<1"]
+
+[project.urls]
+Homepage = "https://github.com/s-age/sukuna"
+Repository = "https://github.com/s-age/sukuna"
+Issues = "https://github.com/s-age/sukuna/issues"
+
+[project.optional-dependencies]
+iterm = ["iterm2>=2.7"]
+dev = ["pytest>=8.0", "ruff>=0.16", "mypy>=2.3", "build", "sukuna[iterm]"]
+
+[project.scripts]
+sukuna = "sukuna.cli:main"
+sukuna-cli = "sukuna.cli_human:main_cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sukuna = ["py.typed", "_tui_bundle/tree-tui.mjs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+include = ["src/**/*.py", "tests/**/*.py"]
+
+[tool.ruff.lint]
+preview = true
+extend-select = ["PLR0912", "PLR0913", "PLR0914", "PLR0915", "C901"]
+
+[tool.ruff.lint.pylint]
+max-locals = 8
+max-branches = 6
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "sukuna.*"
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+warn_unused_ignores = true
+warn_return_any = true
+implicit_reexport = false
+strict_equality = true
+extra_checks = true
+
+[[tool.mypy.overrides]]
+module = "iterm2.*"
+ignore_missing_imports = true
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = ["src", "tests"]

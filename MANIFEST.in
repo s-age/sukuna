@@ -1,0 +1,3 @@
+graft tui
+prune tui/node_modules
+prune tui/dist
