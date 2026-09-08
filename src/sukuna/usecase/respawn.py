@@ -14,7 +14,9 @@ from ..domain.entity.worker_record import WorkerRecord, WorkerState
 from ..domain.mapper.command_mapper import resume_command
 from ..domain.mapper.registry_mapper import record_to_dict
 from ..domain.mapper.terminal_mapper import SpawnResult
+from ..domain.service.session_log import resolve_respawn_model
 from ..errors import ConflictError, CrossBufferError, NotFoundError, ValidationError
+from ..infrastructure.claude_projects import resolve_last_session_state
 from ..infrastructure.filesystem import resolve_existing_directory
 from ..infrastructure.registry import Registry
 from ..infrastructure.settings import load_active_pane_width
@@ -52,12 +54,18 @@ def _place_spawn_and_finalize(
             parent_worker_name=worker.parent_worker_name,  # the record's existing value, left unchanged
             orchestrator_ref=orchestrator_pane_ref(backend),
         )
+        jsonl_model, permission_mode = resolve_last_session_state(
+            worker.session_log_path
+        )
+        model = resolve_respawn_model(jsonl_model, worker.model)
         spawned = terminal_ops.spawn(
             backend=backend,
             command=resume_command(
                 worktree=Path(worker.worktree),
                 name=worker.name,
                 shell=resolve_login_shell(),
+                model=model,
+                permission_mode=permission_mode,
             ),
             anchor_pane_ref=anchor_pane_ref,
             split_direction=direction,

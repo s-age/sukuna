@@ -681,7 +681,11 @@ def test_respawn_rejects_when_the_fallback_root_columns_last_pane_is_a_foreign_b
 # -- resume_command shape (F1/F2) --
 
 
-def test_resume_command_uses_resume_flag_and_never_a_model_flag(tmp_path: Path) -> None:
+def test_respawn_bridges_the_jsonl_derived_model_and_permission_mode_into_resume_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifies that `respawn()` passes through whatever
+    `resolve_last_session_state()` derives from the worker's own jsonl."""
     registry = Registry(tmp_path / "registry.json")
     worktree = tmp_path / "wt"
     worktree.mkdir()
@@ -693,20 +697,95 @@ def test_resume_command_uses_resume_flag_and_never_a_model_flag(tmp_path: Path) 
         parent_session_id="old-session",
         worktree=worktree,
         model="claude-opus-5",
+        session_log_path="/fake/session.jsonl",
     )
     registry.add(target)
     _reach(registry, target, [WorkerState.FAILED])
     RecordingBackend.world = {"orchestrator-pane"}
+    monkeypatch.setattr(
+        respawn_module,
+        "resolve_last_session_state",
+        lambda session_log_path: ("claude-sonnet-5", "auto"),
+    )
 
     respawn(registry, target.name, parent_session_id="current-session")
 
     call = spawn_calls()[-1]
     assert call["command"] == resume_command(
-        worktree=worktree, name=target.name, shell="/bin/zsh"
+        worktree=worktree,
+        name=target.name,
+        shell="/bin/zsh",
+        model="claude-sonnet-5",
+        permission_mode="auto",
     )
     assert "--resume" in call["command"]
     assert "-n " not in call["command"]
+    assert "--model claude-sonnet-5" in call["command"]
+    assert "--permission-mode auto" in call["command"]
+
+
+def test_respawn_falls_back_to_worker_model_when_no_jsonl_derived_model_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = Registry(tmp_path / "registry.json")
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    target = make_worker(
+        tmp_path,
+        name="ccw-x-review-target",
+        state=WorkerState.STARTING,
+        pane_ref=None,
+        parent_session_id="old-session",
+        worktree=worktree,
+        model="claude-opus-5",
+        session_log_path="/fake/session.jsonl",
+    )
+    registry.add(target)
+    _reach(registry, target, [WorkerState.FAILED])
+    RecordingBackend.world = {"orchestrator-pane"}
+    monkeypatch.setattr(
+        respawn_module,
+        "resolve_last_session_state",
+        lambda session_log_path: (None, None),
+    )
+
+    respawn(registry, target.name, parent_session_id="current-session")
+
+    call = spawn_calls()[-1]
+    assert "--model claude-opus-5" in call["command"]
+    assert "--permission-mode" not in call["command"]
+
+
+def test_respawn_omits_both_flags_when_neither_jsonl_nor_worker_model_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registry = Registry(tmp_path / "registry.json")
+    worktree = tmp_path / "wt"
+    worktree.mkdir()
+    target = make_worker(
+        tmp_path,
+        name="ccw-x-review-target",
+        state=WorkerState.STARTING,
+        pane_ref=None,
+        parent_session_id="old-session",
+        worktree=worktree,
+        model=None,
+        session_log_path=None,
+    )
+    registry.add(target)
+    _reach(registry, target, [WorkerState.FAILED])
+    RecordingBackend.world = {"orchestrator-pane"}
+    monkeypatch.setattr(
+        respawn_module,
+        "resolve_last_session_state",
+        lambda session_log_path: (None, None),
+    )
+
+    respawn(registry, target.name, parent_session_id="current-session")
+
+    call = spawn_calls()[-1]
     assert "--model" not in call["command"]
+    assert "--permission-mode" not in call["command"]
 
 
 def test_respawn_never_rewrites_lineage_goal_or_model(tmp_path: Path) -> None:

@@ -51,12 +51,25 @@ def worker_command(
     return _shell_wrap(shell, f"cd {shlex.quote(str(worktree))} && exec {parts}")
 
 
-def resume_command(*, worktree: Path, name: str, shell: str) -> str:
-    """Reopen a pane-less worker via `claude --resume <name>`; takes no
-    `model` -- `--resume` restores the session's original model
-    automatically (https://code.claude.com/docs/en/sessions)."""
+def resume_command(
+    *,
+    worktree: Path,
+    name: str,
+    shell: str,
+    model: str | None = None,
+    permission_mode: str | None = None,
+) -> str:
+    """Reopen a pane-less worker via `claude --resume <name>`. `--resume`
+    does not restore the session's original model or permission mode on
+    its own -- the caller resolves both (typically from the session's own
+    jsonl transcript) and passes them in here. Both pass through to
+    `claude` unvalidated, the same as `worker_command()`'s `model`;
+    `model=None`/`permission_mode=None` each omit their flag."""
     validate_name(name)
-    inner = (
-        f"cd {shlex.quote(str(worktree))} && exec claude --resume {shlex.quote(name)}"
-    )
+    parts = f"claude --resume {shlex.quote(name)}"
+    if model is not None:
+        parts += f" --model {shlex.quote(model)}"
+    if permission_mode is not None:
+        parts += f" --permission-mode {shlex.quote(permission_mode)}"
+    inner = f"cd {shlex.quote(str(worktree))} && exec {parts}"
     return _shell_wrap(shell, inner)

@@ -12,7 +12,10 @@ from typing import Any
 
 from ..domain.service.session_log import (
     encode_project_dir_name,
+    extract_model,
+    extract_permission_mode,
     find_custom_title_match,
+    validate_permission_mode,
 )
 
 DEFAULT_CUSTOM_TITLE_SCAN_LINES = 20
@@ -143,3 +146,57 @@ def resolve_parent_session_log_path(parent_session_id: str) -> str | None:
             continue
         matches.append((jsonl_path, mtime))
     return _newest_match(matches)
+
+
+def _scan_last_session_state(path: Path) -> tuple[str | None, str | None]:
+    """The forward-scan body of `resolve_last_session_state()` below, split
+    out so its own branch count stays under the repo's `PLR0912` limit.
+    Raises `OSError`/`ValueError` (including `UnicodeDecodeError`) on
+    failure -- the caller is the one that degrades those atomically."""
+    model: str | None = None
+    permission_mode_raw: str | None = None
+    with path.open(encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            try:
+                entry = json.loads(stripped)
+            except json.JSONDecodeError:
+                continue
+            found_model = extract_model(entry)
+            if found_model is not None:
+                model = found_model
+            found_permission_mode = extract_permission_mode(entry)
+            if found_permission_mode is not None:
+                permission_mode_raw = found_permission_mode
+    return model, permission_mode_raw
+
+
+def resolve_last_session_state(
+    session_log_path: str | None,
+) -> tuple[str | None, str | None]:
+    """The `(model, permission_mode)` last actually in effect in
+    `session_log_path`, read in a single forward scan -- the last
+    matching entry of each kind wins, independently of the other.
+    `permission_mode` is returned already passed through
+    `validate_permission_mode()`; callers never see the raw value (e.g.
+    the `"default"` sentinel).
+
+    Never raises: a missing/`None` path, or any `OSError`/`ValueError`
+    (including `UnicodeDecodeError`) while opening or scanning the file,
+    degrades atomically to `(None, None)` -- discarding whatever partial
+    result the scan had accumulated so far, mirroring
+    `registry.py`'s `_attach_session_log_path()`. A single malformed JSON
+    line is a narrower, expected failure: only that line is skipped, and
+    the scan continues with values already found intact."""
+    if session_log_path is None:
+        return (None, None)
+    path = Path(session_log_path)
+    if not path.is_file():
+        return (None, None)
+    try:
+        model, permission_mode_raw = _scan_last_session_state(path)
+    except (OSError, ValueError):
+        return (None, None)
+    return (model, validate_permission_mode(permission_mode_raw))

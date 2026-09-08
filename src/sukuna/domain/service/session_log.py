@@ -15,6 +15,18 @@ _MAX_SANITIZED_LENGTH = 200
 _NON_ALNUM = re.compile(r"[^a-zA-Z0-9]")
 _BASE36_DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
 
+_SYNTHETIC_MODEL_SENTINEL = "<synthetic>"
+
+# `claude --permission-mode`'s accepted values as of claude 2.1.257.
+PERMISSION_MODE_CHOICES = (
+    "acceptEdits",
+    "auto",
+    "bypassPermissions",
+    "manual",
+    "dontAsk",
+    "plan",
+)
+
 
 def encode_project_dir_name(cwd: str) -> str:
     """Reproduce Claude Code's `~/.claude/projects/<dir>` naming: every
@@ -68,3 +80,52 @@ def find_custom_title_match(entries: list[Any], name: str) -> bool:
         ):
             return True
     return False
+
+
+def extract_permission_mode(entry: Any) -> str | None:
+    """The raw `permissionMode` value of a `type: "permission-mode"`
+    jsonl entry, unvalidated -- `validate_permission_mode()` below is a
+    separate step so a caller scanning many entries can defer validation
+    until it has settled on the last-seen raw value."""
+    if not isinstance(entry, dict) or entry.get("type") != "permission-mode":
+        return None
+    value = entry.get("permissionMode")
+    return value if isinstance(value, str) else None
+
+
+def validate_permission_mode(value: str | None) -> str | None:
+    """`None` for anything outside `PERMISSION_MODE_CHOICES`, including the
+    `"default"` sentinel (meaning "no explicit mode was set that turn")
+    and any value from a future CLI version
+    this list hasn't been updated for -- both degrade the same way a
+    caller degrades a missing entry: flag omission."""
+    return value if value in PERMISSION_MODE_CHOICES else None
+
+
+def extract_model(entry: Any) -> str | None:
+    """The raw `message.model` value of a jsonl entry, unvalidated like
+    `worker_command()`'s own `model` -- except for `"<synthetic>"`, an
+    internal marker Claude Code writes for turns that never called the
+    API (all-zero token usage, empty `stop_sequence`): that value never
+    represents a model actually in use, so it is treated the same as a
+    missing one rather than passed through."""
+    if not isinstance(entry, dict):
+        return None
+    message = entry.get("message")
+    if not isinstance(message, dict):
+        return None
+    model = message.get("model")
+    if not isinstance(model, str) or model == _SYNTHETIC_MODEL_SENTINEL:
+        return None
+    return model
+
+
+def resolve_respawn_model(
+    jsonl_model: str | None, spawn_model: str | None
+) -> str | None:
+    """Tier 2 of the model fallback chain (card A3BFA355 §3): the
+    jsonl-derived last-actual-value wins when available; `spawn_model`
+    (`WorkerRecord.model`) is used only when the jsonl yielded nothing.
+    Arbitrating between two recorded sources of truth is domain policy,
+    not usecase orchestration -- kept out of `respawn.py` for that reason."""
+    return jsonl_model if jsonl_model is not None else spawn_model

@@ -5,6 +5,7 @@ import pytest
 
 import sukuna.infrastructure.claude_projects as claude_projects_module
 from sukuna.infrastructure.claude_projects import (
+    resolve_last_session_state,
     resolve_parent_session_log_path,
     resolve_session_log_path,
 )
@@ -315,3 +316,143 @@ def test_resolve_parent_session_log_path_skips_a_candidate_that_raises_oserror_o
     monkeypatch.setattr(Path, "stat", flaky_stat)
 
     assert resolve_parent_session_log_path("session-1") == str(healthy)
+
+
+def test_resolve_last_session_state_returns_none_none_for_a_none_path() -> None:
+    assert resolve_last_session_state(None) == (None, None)
+
+
+def test_resolve_last_session_state_returns_none_none_for_a_missing_file(
+    tmp_path: Path,
+) -> None:
+    assert resolve_last_session_state(str(tmp_path / "missing.jsonl")) == (None, None)
+
+
+def test_resolve_last_session_state_extracts_the_last_model_and_permission_mode(
+    tmp_path: Path,
+) -> None:
+    session_log = tmp_path / "session.jsonl"
+    session_log.write_text(
+        '{"message":{"model":"claude-opus-5"}}\n'
+        '{"type":"permission-mode","permissionMode":"acceptEdits"}\n'
+        '{"message":{"model":"claude-sonnet-5"}}\n'
+        '{"type":"permission-mode","permissionMode":"auto"}\n'
+    )
+
+    assert resolve_last_session_state(str(session_log)) == (
+        "claude-sonnet-5",
+        "auto",
+    )
+
+
+def test_resolve_last_session_state_uses_the_last_matching_entry_not_the_last_valid_one(
+    tmp_path: Path,
+) -> None:
+    """The last-*seen* raw `permissionMode` value is validated once, not
+    the last one that happened to be valid -- `auto` then `default`
+    degrades to flag omission even though `auto` appeared earlier."""
+    auto_then_default = tmp_path / "auto-then-default.jsonl"
+    auto_then_default.write_text(
+        '{"type":"permission-mode","permissionMode":"auto"}\n'
+        '{"type":"permission-mode","permissionMode":"default"}\n'
+    )
+    default_then_auto = tmp_path / "default-then-auto.jsonl"
+    default_then_auto.write_text(
+        '{"type":"permission-mode","permissionMode":"default"}\n'
+        '{"type":"permission-mode","permissionMode":"auto"}\n'
+    )
+
+    assert resolve_last_session_state(str(auto_then_default)) == (None, None)
+    assert resolve_last_session_state(str(default_then_auto)) == (None, "auto")
+
+
+def test_resolve_last_session_state_skips_a_malformed_json_line_but_keeps_scanning(
+    tmp_path: Path,
+) -> None:
+    session_log = tmp_path / "session.jsonl"
+    session_log.write_text(
+        '{"message":{"model":"claude-opus-5"}}\n'
+        "not valid json\n"
+        '{"type":"permission-mode","permissionMode":"auto"}\n'
+    )
+
+    assert resolve_last_session_state(str(session_log)) == ("claude-opus-5", "auto")
+
+
+def test_resolve_last_session_state_returns_model_only_when_no_permission_mode_entries_exist(
+    tmp_path: Path,
+) -> None:
+    session_log = tmp_path / "session.jsonl"
+    session_log.write_text('{"message":{"model":"claude-opus-5"}}\n')
+
+    assert resolve_last_session_state(str(session_log)) == ("claude-opus-5", None)
+
+
+def test_resolve_last_session_state_returns_permission_mode_only_when_no_model_entries_exist(
+    tmp_path: Path,
+) -> None:
+    session_log = tmp_path / "session.jsonl"
+    session_log.write_text('{"type":"permission-mode","permissionMode":"auto"}\n')
+
+    assert resolve_last_session_state(str(session_log)) == (None, "auto")
+
+
+def test_resolve_last_session_state_degrades_atomically_to_none_none_on_a_mid_scan_oserror(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A read failure partway through a real scan (line 1 sets `model` for
+    real; line 2's `extract_permission_mode()` call raises `OSError` from
+    inside the live `with`/`for` loop) must discard whatever partial
+    `model`/`permission_mode` had already been found -- never a
+    half-valid result."""
+    session_log = tmp_path / "session.jsonl"
+    session_log.write_text(
+        '{"message":{"model":"claude-opus-5"}}\n{"type":"agent-name"}\n'
+    )
+    calls = 0
+
+    def flaky_extract_permission_mode(entry: object) -> str | None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return None
+        raise OSError("disk read error mid-scan")
+
+    monkeypatch.setattr(
+        claude_projects_module,
+        "extract_permission_mode",
+        flaky_extract_permission_mode,
+    )
+
+    assert resolve_last_session_state(str(session_log)) == (None, None)
+
+
+def test_resolve_last_session_state_returns_none_none_for_a_non_utf8_file(
+    tmp_path: Path,
+) -> None:
+    session_log = tmp_path / "session.jsonl"
+    session_log.write_bytes(b"\xff\xfe\x00\x01invalid utf-8")
+
+    assert resolve_last_session_state(str(session_log)) == (None, None)
+
+
+def test_resolve_last_session_state_returns_none_model_when_every_model_entry_is_synthetic(
+    tmp_path: Path,
+) -> None:
+    session_log = tmp_path / "session.jsonl"
+    session_log.write_text(
+        '{"message":{"model":"<synthetic>"}}\n{"message":{"model":"<synthetic>"}}\n'
+    )
+
+    assert resolve_last_session_state(str(session_log)) == (None, None)
+
+
+def test_resolve_last_session_state_skips_a_trailing_synthetic_entry_and_recovers_the_earlier_real_model(
+    tmp_path: Path,
+) -> None:
+    session_log = tmp_path / "session.jsonl"
+    session_log.write_text(
+        '{"message":{"model":"claude-opus-5"}}\n{"message":{"model":"<synthetic>"}}\n'
+    )
+
+    assert resolve_last_session_state(str(session_log)) == ("claude-opus-5", None)

@@ -1,8 +1,10 @@
+import shlex
 from pathlib import Path
 
 import pytest
 
 from sukuna.domain.mapper.command_mapper import (
+    resume_command,
     validate_name,
     validate_role,
     worker_command,
@@ -67,6 +69,115 @@ def test_worker_command_appends_model_flag_when_given() -> None:
         "/bin/zsh -lc 'cd /tmp/repo && exec claude -n ccw-project-a1b2c3-review-1 "
         "--model sonnet-5'"
     )
+
+
+def test_resume_command_with_no_model_and_no_permission_mode_matches_omitted_kwargs() -> (
+    None
+):
+    assert resume_command(
+        worktree=Path("/tmp/repo"),
+        name="ccw-project-a1b2c3-review-1",
+        shell="/bin/zsh",
+    ) == resume_command(
+        worktree=Path("/tmp/repo"),
+        name="ccw-project-a1b2c3-review-1",
+        shell="/bin/zsh",
+        model=None,
+        permission_mode=None,
+    )
+
+
+def test_resume_command_appends_model_flag_when_given() -> None:
+    command = resume_command(
+        worktree=Path("/tmp/repo"),
+        name="ccw-project-a1b2c3-review-1",
+        shell="/bin/zsh",
+        model="sonnet",
+    )
+
+    assert command == (
+        "/bin/zsh -lc 'cd /tmp/repo && exec claude --resume "
+        "ccw-project-a1b2c3-review-1 --model sonnet'"
+    )
+    assert "--permission-mode" not in command
+
+
+def test_resume_command_distinguishes_an_empty_string_model_from_none() -> None:
+    """`shlex.quote()` re-escapes an already-quoted `''` when the whole
+    inner script is quoted again for the outer shell wrap, so this checks
+    the un-wrapped inner script (`shlex.split()`'s last token) rather than
+    the final command string verbatim."""
+    command = resume_command(
+        worktree=Path("/tmp/repo"),
+        name="ccw-project-a1b2c3-review-1",
+        shell="/bin/zsh",
+        model="",
+    )
+    inner = shlex.split(command)[-1]
+
+    assert inner.endswith("--model ''")
+
+
+def test_resume_command_appends_permission_mode_flag_when_given() -> None:
+    command = resume_command(
+        worktree=Path("/tmp/repo"),
+        name="ccw-project-a1b2c3-review-1",
+        shell="/bin/zsh",
+        permission_mode="auto",
+    )
+
+    assert command == (
+        "/bin/zsh -lc 'cd /tmp/repo && exec claude --resume "
+        "ccw-project-a1b2c3-review-1 --permission-mode auto'"
+    )
+    assert "--model" not in command
+
+
+def test_resume_command_appends_both_flags_when_given() -> None:
+    command = resume_command(
+        worktree=Path("/tmp/repo"),
+        name="ccw-project-a1b2c3-review-1",
+        shell="/bin/zsh",
+        model="sonnet",
+        permission_mode="auto",
+    )
+
+    assert command == (
+        "/bin/zsh -lc 'cd /tmp/repo && exec claude --resume "
+        "ccw-project-a1b2c3-review-1 --model sonnet --permission-mode auto'"
+    )
+
+
+def test_resume_command_with_explicit_none_matches_the_no_flags_output() -> None:
+    with_explicit_none = resume_command(
+        worktree=Path("/tmp/repo"),
+        name="ccw-project-a1b2c3-review-1",
+        shell="/bin/zsh",
+        model=None,
+        permission_mode=None,
+    )
+    without_kwargs = resume_command(
+        worktree=Path("/tmp/repo"),
+        name="ccw-project-a1b2c3-review-1",
+        shell="/bin/zsh",
+    )
+
+    assert with_explicit_none == without_kwargs
+    assert "--model" not in with_explicit_none
+    assert "--permission-mode" not in with_explicit_none
+
+
+def test_resume_command_still_validates_name_before_touching_model_or_permission_mode() -> (
+    None
+):
+    with pytest.raises(ValidationError):
+        resume_command(
+            worktree=Path("/tmp/repo"),
+            name="Not A Valid Name",
+            shell="/bin/zsh",
+            model="sonnet",
+            permission_mode="auto",
+        )
 
 
 @pytest.mark.parametrize("role", ["Review", "review_task", "", "x" * 33])
